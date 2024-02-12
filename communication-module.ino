@@ -131,7 +131,9 @@ void loop() {
     uint8_t messageId = (messageIdPre && 0xFF);
 
     // Check if we have seen this message before
-    for (size_t i = 0; i < SEEN_DEVICES_SIZE; i++) {
+    bool deviceSeen = false;
+    size_t i = 0;
+    for (; i < SEEN_DEVICES_SIZE; i++) {
         if (SEEN_DEVICES[i].deviceId == 0) {
             break;
         }
@@ -139,6 +141,8 @@ void loop() {
         if (SEEN_DEVICES[i].deviceId != *sender) {
             continue;
         }
+
+        deviceSeen = true;
 
         for (size_t j = 0; j < 10; j++) {
             if (SEEN_DEVICES[i].messages[j].messageId == messageId) {
@@ -148,6 +152,17 @@ void loop() {
 
         SEEN_DEVICES[i].messages[SEEN_DEVICES[i].mostRecentMessage].messageId =
             messageId;
+        SEEN_DEVICES[i].mostRecentMessage = (SEEN_DEVICES[i].mostRecentMessage + 1) % 1;
+    }
+
+    if (!deviceSeen) {
+        i++;
+        if (i == SEEN_DEVICES_SIZE) {
+            SEEN_DEVICES_SIZE += 20;
+            SEEN_DEVICES = realloc(SEEN_DEVICES, SEEN_DEVICES_SIZE * sizeof(struct DeviceRecord));
+            memset(SEEN_DEVICES + i, 0, 20 * sizeof(struct DeviceRecord));
+        }
+        SEEN_DEVICES[i].deviceId = *sender;
     }
 
     // Else, we just retransmit it
