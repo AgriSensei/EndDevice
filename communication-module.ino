@@ -146,7 +146,8 @@ void loop() {
             }
         }
 
-        SEEN_DEVICES[i].messages[SEEN_DEVICES[i].mostRecentMessage].messageId = messageId; 
+        SEEN_DEVICES[i].messages[SEEN_DEVICES[i].mostRecentMessage].messageId =
+            messageId;
     }
 
     // Else, we just retransmit it
