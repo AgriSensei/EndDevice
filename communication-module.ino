@@ -1,12 +1,12 @@
 #include <Arduino.h>
 #include <LoRa.h>
 #include <SPI.h>
-#include <stdio.h>
 #include <stddef.h>
+#include <stdio.h>
 
 #define DEVICE_ID 2
 
-template<typename T>
+template <typename T>
 struct Optional {
     T value;
     bool hasVal;
@@ -14,25 +14,15 @@ struct Optional {
     Optional() : value{}, hasVal{false} {}
     Optional(T val) : value{val}, hasVal{true} {}
 
-    explicit operator bool() const {
-        return hasVal;
-    }
+    explicit operator bool() const { return hasVal; }
 
-    T& operator*() {
-        return value;
-    }
+    T& operator*() { return value; }
 
-    const T& operator*() const {
-        return value;
-    }
+    const T& operator*() const { return value; }
 
-    T* operator->() {
-        return &value;
-    }
+    T* operator->() { return &value; }
 
-    const T* operator->() const {
-        return &value;
-    }
+    const T* operator->() const { return &value; }
 };
 
 struct MessageRecord {
@@ -45,37 +35,34 @@ struct DeviceRecord {
     MessageRecord messages[10];
 };
 
-struct DeviceRecord *SEEN_DEVICES;
+struct DeviceRecord* SEEN_DEVICES;
 size_t SEEN_DEVICES_SIZE;
 bool connectedToBridge = false;
 
-enum class FailureType {
-    LoRaInit = 1
-};
+enum class FailureType { LoRaInit = 1 };
 
-void handleMessage(uint16_t sender, uint16_t destination, int remainingPacketSize) {
+void handleMessage(uint16_t sender, uint16_t destination,
+                   int remainingPacketSize) {}
 
-}
+void forwardToBridge(uint16_t sender, uint16_t destination,
+                     int remainingPacketSize) {}
 
-void forwardToBridge(uint16_t sender, uint16_t destination, int remainingPacketSize) {
-
-}
-
-void handleFailure(FailureType type) {
-
-}
+void handleFailure(FailureType type) {}
 
 void setup() {
     Serial.begin(9600);
-    while (!Serial);
+    while (!Serial)
+        ;
 
     if (!LoRa.begin(915E6)) {
         handleFailure(FailureType::LoRaInit);
-        while(1);
+        while (1)
+            ;
     }
 
     SEEN_DEVICES_SIZE = 20;
-    SEEN_DEVICES = (struct DeviceRecord*)malloc(sizeof(struct DeviceRecord) * SEEN_DEVICES_SIZE);
+    SEEN_DEVICES = (struct DeviceRecord*)malloc(sizeof(struct DeviceRecord) *
+                                                SEEN_DEVICES_SIZE);
     memset(SEEN_DEVICES, 0, sizeof(struct DeviceRecord) * SEEN_DEVICES_SIZE);
 }
 
@@ -121,7 +108,7 @@ void loop() {
         return;
     }
 
-    auto destination = getDeviceId(packetSize);  
+    auto destination = getDeviceId(packetSize);
     if (!destination) {
         readRestOfMessage();
         return;
@@ -147,7 +134,6 @@ void loop() {
         if (SEEN_DEVICES[i].deviceId == 0) {
             break;
         }
-        
     }
 
     // Else, we just retransmit it
@@ -155,7 +141,7 @@ void loop() {
     LoRa.write(*sender);
     LoRa.write(*destination);
     while (packetSize) {
-        int readByte = LoRa.read(); 
+        int readByte = LoRa.read();
         if (readByte == -1) {
             break;
         }
