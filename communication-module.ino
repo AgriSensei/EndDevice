@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <stddef.h>
 
+#define DEVICE_ID 2
+
 template<typename T>
 struct Optional {
     T value;
@@ -31,7 +33,6 @@ struct Optional {
     const T* operator->() const {
         return &value;
     }
-    
 };
 
 struct MessageRecord {
@@ -46,12 +47,17 @@ struct DeviceRecord {
 
 struct DeviceRecord *SEEN_DEVICES;
 size_t SEEN_DEVICES_SIZE;
+bool connectedToBridge = false;
 
 enum class FailureType {
     LoRaInit = 1
 };
 
 void handleMessage(uint16_t sender, uint16_t destination, int remainingPacketSize) {
+
+}
+
+void forwardToBridge(uint16_t sender, uint16_t destination, int remainingPacketSize) {
 
 }
 
@@ -98,7 +104,6 @@ Optional<uint16_t> getDeviceId(int& packetSize) {
 bool readRestOfMessage() {
     while (LoRa.available()) {
         LoRa.read();
-        packetSize--;
     }
 }
 
@@ -127,7 +132,7 @@ void loop() {
     }
     if (connectedToBridge && *destination == 0) {
         forwardToBridge(*sender, *destination, packetSize);
-        return
+        return;
     }
 
     int messageId = LoRa.read();
@@ -139,11 +144,10 @@ void loop() {
 
     // Check if we have seen this message before
     for (size_t i = 0; i < SEEN_DEVICES_SIZE; i++) {
-        if (SEEN_DEVICES[i] == 0) {
+        if (SEEN_DEVICES[i].deviceId == 0) {
             break;
         }
         
-        if (SEEN_DEVICES[i])
     }
 
     // Else, we just retransmit it
