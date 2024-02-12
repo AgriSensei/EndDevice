@@ -102,13 +102,13 @@ void loop() {
 
     // Else, there are packets available
 
-    auto sender = getDeviceId(packetSize);
+    Optional<uint16_t> sender = getDeviceId(packetSize);
     if (!sender || (*sender - 2) == DEVICE_ID) {
         readRestOfMessage();
         return;
     }
 
-    auto destination = getDeviceId(packetSize);
+    Optional<uint16_t> destination = getDeviceId(packetSize);
     if (!destination) {
         readRestOfMessage();
         return;
@@ -122,18 +122,31 @@ void loop() {
         return;
     }
 
-    int messageId = LoRa.read();
+    int messageIdPre = LoRa.read();
     packetSize--;
-    if (messageId == -1) {
+    if (messageIdPre == -1) {
         readRestOfMessage();
         return;
     }
+    uint8_t messageId = (messageIdPre && 0xFF);
 
     // Check if we have seen this message before
     for (size_t i = 0; i < SEEN_DEVICES_SIZE; i++) {
         if (SEEN_DEVICES[i].deviceId == 0) {
             break;
         }
+
+        if (SEEN_DEVICES[i].deviceId != *sender) {
+            continue;
+        }
+
+        for (size_t j = 0; j < 10; j++) {
+            if (SEEN_DEVICES[i].messages[j].messageId == messageId) {
+                return;
+            }
+        }
+
+        SEEN_DEVICES[i].messages[SEEN_DEVICES[i].mostRecentMessage].messageId = messageId; 
     }
 
     // Else, we just retransmit it
