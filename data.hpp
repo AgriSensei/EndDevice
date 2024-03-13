@@ -26,6 +26,7 @@ struct __attribute__((packed)) Header {
     uint8_t messageType{};
     uint16_t bodySize{};
 };
+// TODO(EliSauder): Change bodySize to packet# and add number of packets field
 
 struct __attribute__((packed)) Packet {
     Header header{};
@@ -41,14 +42,16 @@ enum class RecievePacketErrors {
     UnableToReadBody = 2,
     NoDataAfterHeader = 3,
     ExpectedPacketSizeDoesntMatchActual = 4,
+    CallbackPreventedReadingBody = 5,
 };
 
 void recievePacket(int packetSize);
 
-util::Result<Packet, RecievePacketErrors> recievePacket(LoRaClass& lora,
-                                                        int packetSize);
+util::Result<Packet, RecievePacketErrors> recievePacket(
+    LoRaClass& lora, int packetSize,
+    bool (*shouldReadBody)(struct Header&) = nullptr);
 
-bool sendMessage(const Packet& message);
+bool sendMessage(LoRaClass& lora, const Packet& message);
 
 edcom::util::Optional<struct Header> getHeader(LoRaClass& lora,
                                                int& packetSize);

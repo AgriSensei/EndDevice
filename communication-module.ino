@@ -4,19 +4,19 @@
 #include <stddef.h>
 #include <stdio.h>
 
-#include "util.hpp"
 #include "data.hpp"
+#include "util.hpp"
 
 #define DEVICE_ID 2
 
 struct MessageRecord {
-    uint8_t messageId;
-    uint8_t messagesSeen;
+    uint8_t messageId{};
+    uint8_t messagesSeen{};
 };
 struct DeviceRecord {
-    uint16_t deviceId;
-    uint8_t mostRecentMessage;
-    MessageRecord messages[10];
+    edcom::util::Optional<uint16_t> deviceId{};
+    uint8_t mostRecentMessage{};
+    edcom::util::Optional<MessageRecord> messages[10]{};
 };
 
 struct DeviceRecord* SEEN_DEVICES;
@@ -36,7 +36,6 @@ void forwardToBridge(uint16_t sender, uint16_t destination,
 }
 
 void handleFailure(FailureType type) { Serial.println("handling failure"); }
-
 
 bool readRestOfMessage() {
     Serial.println("Reading rest of message");
@@ -61,70 +60,36 @@ void setup() {
     memset(SEEN_DEVICES, 0, sizeof(struct DeviceRecord) * SEEN_DEVICES_SIZE);
 }
 
-void loop() {
-    int packetSize = LoRa.parsePacket();
-    if (!packetSize) {
-        return;
-    }
-    Serial.println("Message recieved");
-
-    uint8_t* messageContent = nullptr;
-    size_t messageContentSize = 0;
-    if (packetSize - 4 > 0) {
-        messageContentSize = packetSize - 4;
-        messageContent = (uint8_t*)malloc(sizeof(uint8_t) * packetSize - 4);
-    }
-
-    // Else, there are packets available
-
-    auto headerOpt = edcom::data::getHeader(LoRa, packetSize);
-    if (!headerOpt ||
-        (headerOpt->fromId && *(headerOpt->fromId) - 2 == DEVICE_ID)) {
-        readRestOfMessage();
-        return;
-    }
-    edcom::data::Header header = *headerOpt;
-
-    if (header.toId && *(header.toId) == DEVICE_ID) {
-        handleMessage(*header.fromId, *header.toId, packetSize);
-        return;
-    }
-    if (connectedToBridge && header.toType == edcom::data::IdType::Bridge) {
-        forwardToBridge(*header.fromId, static_cast<uint16_t>(edcom::data::IdType::Bridge),
-                        packetSize);
-        return;
-    }
-
-    // Check if we have seen this message before
+bool shouldReadBody(struct edcom::data::Header& header) {
     bool deviceSeen = false;
     size_t i = 0;
     for (; i < SEEN_DEVICES_SIZE; i++) {
-        if (SEEN_DEVICES[i].deviceId == 0) {
+        if (!SEEN_DEVICES[i].deviceId) {
             break;
         }
 
-        if (SEEN_DEVICES[i].deviceId != *header.fromId) {
+        if (*SEEN_DEVICES[i].deviceId != *header.fromId) {
             continue;
         }
 
         deviceSeen = true;
 
         for (size_t j = 0; j < 10; j++) {
-            if (SEEN_DEVICES[i].messages[j].messageId == header.messageId) {
+            if (SEEN_DEVICES[i].messages[j] && SEEN_DEVICES[i].messages[j]->messageId == header.messageId) {
                 Serial.println("Device + Message ID has been seen");
-                return;
+                return false;
             }
         }
 
         SEEN_DEVICES[i].messages[SEEN_DEVICES[i].mostRecentMessage].messageId =
             header.messageId;
-        SEEN_DEVICES[i].mostRecentMessage =
-            (SEEN_DEVICES[i].mostRecentMessage + 1) % 1;
+
+        SEEN_DEVICES[i].mostRecentMessage++;
+        SEEN_DEVICES[i].mostRecentMessage %= 10;
     }
 
     if (!deviceSeen) {
         Serial.println("Device has not been seen before");
-        i++;
         if (i == SEEN_DEVICES_SIZE) {
             SEEN_DEVICES_SIZE += 20;
             SEEN_DEVICES = (struct DeviceRecord*)realloc(
@@ -134,32 +99,21 @@ void loop() {
         SEEN_DEVICES[i].deviceId = *header.fromId;
     }
 
-    Serial.println("Reading rest of message into buffer");
-    uint8_t byteRead = LoRa.read();
-    size_t index = 0;
-    while (byteRead != -1 && index < messageContentSize) {
-        *(messageContent + index++) = byteRead;
-        byteRead = LoRa.read();
-    }
-    if (index < messageContentSize) {
-        messageContentSize = index;
+    return true;
+}
+
+void loop() {
+    auto res =
+        edcom::data::recievePacket(LoRa, LoRa.parsePacket(), &shouldReadBody);
+
+    if (!res) {
+        Serial.print("Error when reciving packet: ");
+        Serial.println(static_cast<int>(+res));
     }
 
-    delay(100);
+    auto header = res->header;
 
     // Else, we just retransmit it
     Serial.println("Retransmitting");
-    while (!LoRa.beginPacket()) {
-        Serial.println("Trying again");
-        delay(10);
-    }
-    Serial.println("Retransmitting 2");
-    LoRa.write(*header.fromId);
-    LoRa.write(header.toId ? static_cast<uint16_t>(header.toType)
-                           : *header.toId);
-    // TODO: Write header
-    for (size_t i = 0; i < index; i++) {
-        LoRa.write(*(messageContent + i));
-    }
-    LoRa.endPacket();
+    edcom::data::sendMessage(LoRa, *res);
 }

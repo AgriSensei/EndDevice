@@ -54,7 +54,7 @@ edu::Optional<struct Header> getHeader(LoRaClass& lora, int& packetSize) {
 
 enum class ReadBodyErrors {
     BufferTooSmall = 0,
-    NothingToRead = 0,
+    NothingToRead = 1,
 };
 
 util::Result<size_t, ReadBodyErrors> readBody(LoRaClass& lora, int& packetSize,
@@ -63,42 +63,44 @@ util::Result<size_t, ReadBodyErrors> readBody(LoRaClass& lora, int& packetSize,
         return ReadBodyErrors::NothingToRead;
     }
 
-    size_t writeIndex{};
-    while (packetSize-- > 0 && bufLen-- > 0) {
-        *(buf + writeIndex++) = lora.read();
-    }
+    size_t numRead = lora.readBytes(buf, bufLen);
+    packetSize -= static_cast<int>(numRead);
 
     if (packetSize > 0) {
-        return {writeIndex, ReadBodyErrors::BufferTooSmall};
+        return {numRead, ReadBodyErrors::BufferTooSmall};
     }
 
-    return writeIndex;
+    return numRead;
 }
 
-void recievePacket(int packetSize) {
-    auto res = recievePacket(LoRa, packetSize);
-    if (res) {
-        IncomingMessages.enqueue(*res);
+void readBodyAndDiscard(LoRaClass& lora) {
+    while (lora.read() != -1) {
     }
 }
 
-util::Result<Packet, RecievePacketErrors> recievePacket(LoRaClass& lora,
-                                                        int packetSize) {
+util::Result<Packet, RecievePacketErrors> recievePacket(
+    LoRaClass& lora, int packetSize, bool (*shouldReadBody)(struct Header&)) {
     if (packetSize == 0) {
         return RecievePacketErrors::NoPacketToRead;
     }
 
+    // Read header
     auto header = getHeader(lora, packetSize);
     if (!header) {
         return RecievePacketErrors::UnableToReadHeader;
     }
-
     if (packetSize <= 0) {
         return RecievePacketErrors::NoDataAfterHeader;
     }
 
-    util::Optional<RecievePacketErrors> bodySizeError;
+    // Handle duplicates or other things based on callback
+    if (shouldReadBody != nullptr && !shouldReadBody(*header)) {
+        readBodyAndDiscard(lora);
+        return RecievePacketErrors::CallbackPreventedReadingBody;
+    }
 
+    // Read body
+    util::Optional<RecievePacketErrors> bodySizeError;
     if (packetSize != header->bodySize) {
         bodySizeError =
             RecievePacketErrors::ExpectedPacketSizeDoesntMatchActual;
@@ -106,12 +108,12 @@ util::Result<Packet, RecievePacketErrors> recievePacket(LoRaClass& lora,
 
     int toReadBodySize =
         util::min(packetSize, static_cast<int>(header->bodySize));
-
     auto buffer =
         static_cast<uint8_t*>(malloc(sizeof(uint8_t) * toReadBodySize));
 
     auto readBodyRes = readBody(lora, toReadBodySize, buffer, toReadBodySize);
 
+    // Return final result
     if (!readBodyRes && readBodyRes.has_val()) {
         Packet packet;
         packet.header = std::move(*header);
@@ -123,6 +125,7 @@ util::Result<Packet, RecievePacketErrors> recievePacket(LoRaClass& lora,
         free(buffer);
         return RecievePacketErrors::UnableToReadBody;
     }
+
     Packet packet;
     packet.header = std::move(*header);
     packet.data = buffer;
@@ -131,6 +134,13 @@ util::Result<Packet, RecievePacketErrors> recievePacket(LoRaClass& lora,
         return {packet, *bodySizeError};
     }
     return packet;
+}
+
+void recievePacket(int packetSize) {
+    auto res = recievePacket(LoRa, packetSize);
+    if (res) {
+        IncomingMessages.enqueue(*res);
+    }
 }
 
 size_t writeHeader(LoRaClass& lora, const Header& header) {
