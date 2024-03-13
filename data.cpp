@@ -75,6 +75,13 @@ util::Result<size_t, ReadBodyErrors> readBody(LoRaClass& lora, int& packetSize,
     return writeIndex;
 }
 
+void recievePacket(int packetSize) {
+    auto res = recievePacket(LoRa, packetSize);
+    if (res) {
+        IncomingMessages.enqueue(*res);
+    }
+}
+
 util::Result<Packet, RecievePacketErrors> recievePacket(LoRaClass& lora,
                                                         int packetSize) {
     if (packetSize == 0) {

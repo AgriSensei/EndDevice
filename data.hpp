@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "queue.hpp"
 #include "util.hpp"
@@ -30,15 +31,19 @@ struct __attribute__((packed)) Packet {
     Header header{};
     uint8_t* data{};
     size_t dataLength{};
+
+    ~Packet() { free(data); }
 };
 
 enum class RecievePacketErrors {
-    NoPacketToRead = 0b0,
-    UnableToReadHeader = 0b1,
-    UnableToReadBody = 0b10,
-    NoDataAfterHeader = 0b100,
-    ExpectedPacketSizeDoesntMatchActual = 0b1000,
+    NoPacketToRead = 0,
+    UnableToReadHeader = 1,
+    UnableToReadBody = 2,
+    NoDataAfterHeader = 3,
+    ExpectedPacketSizeDoesntMatchActual = 4,
 };
+
+void recievePacket(int packetSize);
 
 util::Result<Packet, RecievePacketErrors> recievePacket(LoRaClass& lora,
                                                         int packetSize);

@@ -11,39 +11,44 @@ class Queue {
     struct QueueNode {
         QueueNode* next{};
         T value{};
+
+        QueueNode() = default;
+        QueueNode(QueueNode* next, T value) : next{next}, value{value} {}
     };
     QueueNode* _front{};
     QueueNode* _back{};
-    size_t size{};
+    size_t _size{};
 
    public:
+    size_t size() { return _size; }
+
     [[nodiscard]] const T& front() { return _front->value; }
 
     void enqueue(const T& value) {
-        if (size == 0) {
+        if (_size == 0) {
             _front = new QueueNode{nullptr, value};
             _back = _front;
-            size++;
+            _size++;
             return;
         }
         _back->next = new QueueNode{nullptr, value};
         _back = _back->next;
-        size++;
+        _size++;
     }
 
     void pop() {
         QueueNode* tmp = _front;
         _front = _front->next;
         delete tmp;
-        size--;
+        _size--;
     }
 
     ~Queue() {
-       while (_front != nullptr) {
-           QueueNode* tmp = _front;
-           _front = _front->next;
-           delete tmp;
-       } 
+        while (_front != nullptr) {
+            QueueNode* tmp = _front;
+            _front = _front->next;
+            delete tmp;
+        }
     }
 };
 
