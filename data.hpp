@@ -16,7 +16,7 @@ enum class IdType {
     SpecificEndDevice = 2,
 };
 
-struct Header {
+struct __attribute__((packed)) Header {
     IdType fromType{};
     edcom::util::Optional<uint16_t> fromId{};
     IdType toType{};
@@ -26,22 +26,31 @@ struct Header {
     uint16_t bodySize{};
 };
 
-struct Message {
+struct __attribute__((packed)) Packet {
     Header header{};
     uint8_t* data{};
     size_t dataLength{};
 };
 
-void recievePacket(int packetSize);
+enum class RecievePacketErrors {
+    NoPacketToRead = 0b0,
+    UnableToReadHeader = 0b1,
+    UnableToReadBody = 0b10,
+    NoDataAfterHeader = 0b100,
+    ExpectedPacketSizeDoesntMatchActual = 0b1000,
+};
 
-void sendMessage(const Message& message);
+util::Result<Packet, RecievePacketErrors> recievePacket(LoRaClass& lora,
+                                                        int packetSize);
+
+bool sendMessage(const Packet& message);
 
 edcom::util::Optional<struct Header> getHeader(LoRaClass& lora,
                                                int& packetSize);
 
 }  // namespace data
 
-extern queue::Queue<data::Message> IncomingMessages;
+extern queue::Queue<data::Packet> IncomingMessages;
 
 }  // namespace edcom
 
