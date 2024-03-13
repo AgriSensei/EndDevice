@@ -4,26 +4,10 @@
 #include <stddef.h>
 #include <stdio.h>
 
+#include "util.hpp"
+#include "data.hpp"
+
 #define DEVICE_ID 2
-
-template <typename T>
-struct Optional {
-    T value;
-    bool hasVal;
-
-    Optional() : value{}, hasVal{false} {}
-    Optional(T val) : value{val}, hasVal{true} {}
-
-    explicit operator bool() const { return hasVal; }
-
-    T& operator*() { return value; }
-
-    const T& operator*() const { return value; }
-
-    T* operator->() { return &value; }
-
-    const T* operator->() const { return &value; }
-};
 
 struct MessageRecord {
     uint8_t messageId;
@@ -42,12 +26,23 @@ bool connectedToBridge = false;
 enum class FailureType { LoRaInit = 1 };
 
 void handleMessage(uint16_t sender, uint16_t destination,
-                   int remainingPacketSize) {}
+                   int remainingPacketSize) {
+    Serial.println("handling message");
+}
 
 void forwardToBridge(uint16_t sender, uint16_t destination,
-                     int remainingPacketSize) {}
+                     int remainingPacketSize) {
+    Serial.println("forwarding message to bridge");
+}
 
-void handleFailure(FailureType type) {}
+void handleFailure(FailureType type) { Serial.println("handling failure"); }
+
+
+bool readRestOfMessage() {
+    Serial.println("Reading rest of message");
+    while (LoRa.read() != -1)
+        ;
+}
 
 void setup() {
     Serial.begin(9600);
@@ -66,69 +61,39 @@ void setup() {
     memset(SEEN_DEVICES, 0, sizeof(struct DeviceRecord) * SEEN_DEVICES_SIZE);
 }
 
-Optional<uint16_t> getDeviceId(int& packetSize) {
-    int value = LoRa.read();
-    packetSize--;
-
-    if (value == -1 || packetSize == 0) {
-        return {};
-    }
-
-    uint16_t data = (value & 0xFF);
-
-    value = LoRa.read();
-    packetSize--;
-
-    if (value == -1) {
-        return {};
-    }
-
-    data |= ((value & 0xFF) << 8);
-
-    return data;
-}
-
-bool readRestOfMessage() {
-    while (LoRa.available()) {
-        LoRa.read();
-    }
-}
-
 void loop() {
     int packetSize = LoRa.parsePacket();
     if (!packetSize) {
         return;
     }
+    Serial.println("Message recieved");
+
+    uint8_t* messageContent = nullptr;
+    size_t messageContentSize = 0;
+    if (packetSize - 4 > 0) {
+        messageContentSize = packetSize - 4;
+        messageContent = (uint8_t*)malloc(sizeof(uint8_t) * packetSize - 4);
+    }
 
     // Else, there are packets available
 
-    Optional<uint16_t> sender = getDeviceId(packetSize);
-    if (!sender || (*sender - 2) == DEVICE_ID) {
+    auto headerOpt = edcom::data::getHeader(LoRa, packetSize);
+    if (!headerOpt ||
+        (headerOpt->fromId && *(headerOpt->fromId) - 2 == DEVICE_ID)) {
         readRestOfMessage();
         return;
     }
+    edcom::data::Header header = *headerOpt;
 
-    Optional<uint16_t> destination = getDeviceId(packetSize);
-    if (!destination) {
-        readRestOfMessage();
+    if (header.toId && *(header.toId) == DEVICE_ID) {
+        handleMessage(*header.fromId, *header.toId, packetSize);
         return;
     }
-    if ((*destination - 2) == DEVICE_ID) {
-        handleMessage(*sender, *destination, packetSize);
+    if (connectedToBridge && header.toType == edcom::data::IdType::Bridge) {
+        forwardToBridge(*header.fromId, static_cast<uint16_t>(edcom::data::IdType::Bridge),
+                        packetSize);
         return;
     }
-    if (connectedToBridge && *destination == 0) {
-        forwardToBridge(*sender, *destination, packetSize);
-        return;
-    }
-
-    int messageIdPre = LoRa.read();
-    packetSize--;
-    if (messageIdPre == -1) {
-        readRestOfMessage();
-        return;
-    }
-    uint8_t messageId = (messageIdPre && 0xFF);
 
     // Check if we have seen this message before
     bool deviceSeen = false;
@@ -138,43 +103,63 @@ void loop() {
             break;
         }
 
-        if (SEEN_DEVICES[i].deviceId != *sender) {
+        if (SEEN_DEVICES[i].deviceId != *header.fromId) {
             continue;
         }
 
         deviceSeen = true;
 
         for (size_t j = 0; j < 10; j++) {
-            if (SEEN_DEVICES[i].messages[j].messageId == messageId) {
+            if (SEEN_DEVICES[i].messages[j].messageId == header.messageId) {
+                Serial.println("Device + Message ID has been seen");
                 return;
             }
         }
 
         SEEN_DEVICES[i].messages[SEEN_DEVICES[i].mostRecentMessage].messageId =
-            messageId;
-        SEEN_DEVICES[i].mostRecentMessage = (SEEN_DEVICES[i].mostRecentMessage + 1) % 1;
+            header.messageId;
+        SEEN_DEVICES[i].mostRecentMessage =
+            (SEEN_DEVICES[i].mostRecentMessage + 1) % 1;
     }
 
     if (!deviceSeen) {
+        Serial.println("Device has not been seen before");
         i++;
         if (i == SEEN_DEVICES_SIZE) {
             SEEN_DEVICES_SIZE += 20;
-            SEEN_DEVICES = realloc(SEEN_DEVICES, SEEN_DEVICES_SIZE * sizeof(struct DeviceRecord));
+            SEEN_DEVICES = (struct DeviceRecord*)realloc(
+                SEEN_DEVICES, SEEN_DEVICES_SIZE * sizeof(struct DeviceRecord));
             memset(SEEN_DEVICES + i, 0, 20 * sizeof(struct DeviceRecord));
         }
-        SEEN_DEVICES[i].deviceId = *sender;
+        SEEN_DEVICES[i].deviceId = *header.fromId;
     }
 
+    Serial.println("Reading rest of message into buffer");
+    uint8_t byteRead = LoRa.read();
+    size_t index = 0;
+    while (byteRead != -1 && index < messageContentSize) {
+        *(messageContent + index++) = byteRead;
+        byteRead = LoRa.read();
+    }
+    if (index < messageContentSize) {
+        messageContentSize = index;
+    }
+
+    delay(100);
+
     // Else, we just retransmit it
-    LoRa.beginPacket();
-    LoRa.write(*sender);
-    LoRa.write(*destination);
-    while (packetSize) {
-        int readByte = LoRa.read();
-        if (readByte == -1) {
-            break;
-        }
-        LoRa.write(readByte);
+    Serial.println("Retransmitting");
+    while (!LoRa.beginPacket()) {
+        Serial.println("Trying again");
+        delay(10);
+    }
+    Serial.println("Retransmitting 2");
+    LoRa.write(*header.fromId);
+    LoRa.write(header.toId ? static_cast<uint16_t>(header.toType)
+                           : *header.toId);
+    // TODO: Write header
+    for (size_t i = 0; i < index; i++) {
+        LoRa.write(*(messageContent + i));
     }
     LoRa.endPacket();
 }
