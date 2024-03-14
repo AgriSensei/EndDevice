@@ -56,6 +56,17 @@ bool sendMessage(LoRaClass& lora, const Packet& message);
 edcom::util::Optional<struct Header> getHeader(LoRaClass& lora,
                                                int& packetSize);
 
+enum WhatToDoWithPacket {
+    Nothing = 0b0,
+    Retransmit = 0b1,
+    Handle = 0b10,
+    ForwardToBridge = 0b100,
+};
+
+WhatToDoWithPacket whatToDoWithPacket(uint8_t currentDeviceId,
+                                      HardwareSerial& serial,
+                                      struct Packet& packet);
+
 }  // namespace data
 
 extern queue::Queue<data::Packet> IncomingMessages;

@@ -15,7 +15,7 @@ struct MessageRecord {
 };
 struct DeviceRecord {
     edcom::util::Optional<uint16_t> deviceId{};
-    uint8_t mostRecentMessage{};
+    uint8_t nextMessageId{};
     edcom::util::Optional<MessageRecord> messages[10]{};
 };
 
@@ -25,23 +25,7 @@ bool connectedToBridge = false;
 
 enum class FailureType { LoRaInit = 1 };
 
-void handleMessage(uint16_t sender, uint16_t destination,
-                   int remainingPacketSize) {
-    Serial.println("handling message");
-}
-
-void forwardToBridge(uint16_t sender, uint16_t destination,
-                     int remainingPacketSize) {
-    Serial.println("forwarding message to bridge");
-}
-
 void handleFailure(FailureType type) { Serial.println("handling failure"); }
-
-bool readRestOfMessage() {
-    Serial.println("Reading rest of message");
-    while (LoRa.read() != -1)
-        ;
-}
 
 void setup() {
     Serial.begin(9600);
@@ -60,7 +44,7 @@ void setup() {
     memset(SEEN_DEVICES, 0, sizeof(struct DeviceRecord) * SEEN_DEVICES_SIZE);
 }
 
-bool shouldReadBody(struct edcom::data::Header& header) {
+bool shouldReadBodyCallback(struct edcom::data::Header& header) {
     bool deviceSeen = false;
     size_t i = 0;
     for (; i < SEEN_DEVICES_SIZE; i++) {
@@ -75,17 +59,18 @@ bool shouldReadBody(struct edcom::data::Header& header) {
         deviceSeen = true;
 
         for (size_t j = 0; j < 10; j++) {
-            if (SEEN_DEVICES[i].messages[j] && SEEN_DEVICES[i].messages[j]->messageId == header.messageId) {
+            if (SEEN_DEVICES[i].messages[j] &&
+                SEEN_DEVICES[i].messages[j]->messageId == header.messageId) {
                 Serial.println("Device + Message ID has been seen");
                 return false;
             }
         }
 
-        SEEN_DEVICES[i].messages[SEEN_DEVICES[i].mostRecentMessage].messageId =
+        SEEN_DEVICES[i].messages[SEEN_DEVICES[i].nextMessageId]->messageId =
             header.messageId;
 
-        SEEN_DEVICES[i].mostRecentMessage++;
-        SEEN_DEVICES[i].mostRecentMessage %= 10;
+        SEEN_DEVICES[i].nextMessageId++;
+        SEEN_DEVICES[i].nextMessageId %= 10;
     }
 
     if (!deviceSeen) {
@@ -102,18 +87,40 @@ bool shouldReadBody(struct edcom::data::Header& header) {
     return true;
 }
 
-void loop() {
-    auto res =
-        edcom::data::recievePacket(LoRa, LoRa.parsePacket(), &shouldReadBody);
+void handlePacket(struct edcom::data::Packet& packet) {
+    Serial.println("trace|handlePacket|Handling packet");
+}
 
-    if (!res) {
-        Serial.print("Error when reciving packet: ");
-        Serial.println(static_cast<int>(+res));
+void forwardToBridge(HardwareSerial& serial,
+                     struct edcom::data::Packet& packet) {
+    Serial.println("trace|forwardToBridge|Forwarding to bridge");
+}
+
+void loop() {
+    Serial.println("trace|loop| > Recieving Packet");
+    auto packetRes = edcom::data::recievePacket(LoRa, LoRa.parsePacket(),
+                                                &shouldReadBodyCallback);
+    Serial.println("trace|loop| < Recieving Packet");
+
+    if (!packetRes) {
+        Serial.print("warning|loop|Error when reciving packet: ");
+        Serial.println(static_cast<int>(+packetRes));
+        return;
     }
 
-    auto header = res->header;
+    auto whatToDo =
+        edcom::data::whatToDoWithPacket(DEVICE_ID, Serial, *packetRes);
 
-    // Else, we just retransmit it
-    Serial.println("Retransmitting");
-    edcom::data::sendMessage(LoRa, *res);
+    if (whatToDo & edcom::data::WhatToDoWithPacket::Handle) {
+        handlePacket(*packetRes);
+        // TODO(EliSauder): Impl Handle
+    }
+    if (whatToDo & edcom::data::WhatToDoWithPacket::ForwardToBridge) {
+        forwardToBridge(Serial, *packetRes);
+        // TODO(EliSauder): Impl forward
+    }
+    if (whatToDo & edcom::data::WhatToDoWithPacket::Retransmit) {
+        Serial.println("Retransmitting");
+        edcom::data::sendMessage(LoRa, *packetRes);
+    }
 }

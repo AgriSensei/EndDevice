@@ -174,5 +174,27 @@ bool sendMessage(LoRaClass& lora, const Packet& message) {
     return lora.endPacket();
 }
 
+WhatToDoWithPacket whatToDoWithPacket(uint8_t currentDeviceId,
+                                      HardwareSerial& serial,
+                                      struct Packet& packet) {
+    if (packet.header.toType == IdType::Bridge) {
+        if (serial) {
+            return WhatToDoWithPacket::ForwardToBridge;
+        }
+        return WhatToDoWithPacket::Retransmit;
+    }
+
+    if (packet.header.toType == IdType::AnyEndDevice) {
+        return static_cast<WhatToDoWithPacket>(WhatToDoWithPacket::Retransmit |
+                                               WhatToDoWithPacket::Handle);
+    }
+
+    if (*packet.header.toId == currentDeviceId) {
+        return WhatToDoWithPacket::Handle;
+    }
+
+    return WhatToDoWithPacket::Nothing;
+}
+
 }  // namespace data
 }  // namespace edcom
