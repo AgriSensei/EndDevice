@@ -2,6 +2,8 @@
 
 #include <utility>
 
+#include "logging.hpp"
+
 namespace edcom {
 queue::Queue<data::Packet> IncomingMessages;
 
@@ -92,18 +94,18 @@ util::Result<Packet, RecievePacketErrors> recievePacket(
     // Read header
     auto header = getHeader(lora, packetSize);
     if (!header) {
-        Serial.println("error|recievePacket|Unable to read header");
+        LOGLN("error|recievePacket|Unable to read header");
         return RecievePacketErrors::UnableToReadHeader;
     }
     if (packetSize <= 0) {
-        Serial.println("error|recievePacket|No data after header");
+        LOGLN("error|recievePacket|No data after header");
         return RecievePacketErrors::NoDataAfterHeader;
     }
 
     // Handle duplicates or other things based on callback
     if (shouldReadBody != nullptr && !shouldReadBody(*header)) {
         readBodyAndDiscard(lora);
-        Serial.println("error|recievePacket|Callback prevented reading body");
+        LOGLN("error|recievePacket|Callback prevented reading body");
         return RecievePacketErrors::CallbackPreventedReadingBody;
     }
 
@@ -119,13 +121,13 @@ util::Result<Packet, RecievePacketErrors> recievePacket(
     auto buffer =
         static_cast<uint8_t*>(malloc(sizeof(uint8_t) * toReadBodySize));
 
-    Serial.println("trace|recievePacket|reading body");
+    LOGLN("trace|recievePacket|reading body");
     auto readBodyRes = readBody(lora, toReadBodySize, buffer, toReadBodySize);
-    Serial.println("trace|recievePacket|finished reading body");
+    LOGLN("trace|recievePacket|finished reading body");
 
     // Return final result
     if (!readBodyRes && readBodyRes.has_val()) {
-        Serial.println(
+        LOGLN(
             "warning|recievePacket|Error occured while reading packet, but "
             "still got data");
         Packet packet;
@@ -135,13 +137,12 @@ util::Result<Packet, RecievePacketErrors> recievePacket(
         return {packet, RecievePacketErrors::UnableToReadBody};
     }
     if (!readBodyRes && !readBodyRes.has_val()) {
-        Serial.println(
-            "error|recievePacket|Error while reading body, unable to read");
+        LOGLN("error|recievePacket|Error while reading body, unable to read");
         free(buffer);
         return RecievePacketErrors::UnableToReadBody;
     }
 
-    Serial.println("trace|recievePacket|Returning packet info");
+    LOGLN("trace|recievePacket|Returning packet info");
     Packet packet;
     packet.header = std::move(*header);
     packet.data = buffer;
@@ -166,6 +167,10 @@ bool sendMessage(LoRaClass& lora, const Packet& message) {
         delay(PACKET_NOT_READY_TRY_AGAIN_DELAY);
     }
 
+    LOG("Retransmitting with fromId: ");
+    LOGLN(*message.header.fromId);
+    LOG("Retransmitting with toId: ");
+    LOGLN(*message.header.toId);
     writeHeader(lora, message.header);
     writeData(lora, message.data, message.dataLength);
 
@@ -197,7 +202,7 @@ WhatToDoWithPacket whatToDoWithPacket(uint8_t currentDeviceId,
 
     return WhatToDoWithPacket::Retransmit;
 }
-
+#ifdef DO_LOGGING
 void printPacket(HardwareSerial& serial, struct Packet& packet) {
     serial.print("{\"header\":");
     printHeader(serial, packet.header);
@@ -206,7 +211,11 @@ void printPacket(HardwareSerial& serial, struct Packet& packet) {
     serial.write(packet.data, packet.dataLength);
     serial.print("\"}");
 }
+#else
+void printPacket(HardwareSerial& serial, struct Packet& packet) {}
+#endif
 
+#ifdef DO_LOGGING
 void printHeader(HardwareSerial& serial, struct Header& header) {
     serial.print("{");
     serial.print("\"fromType\":\"");
@@ -261,6 +270,9 @@ void printHeader(HardwareSerial& serial, struct Header& header) {
     serial.print(header.bodySize);
     serial.print("\"}");
 }
+#else
+void printHeader(HardwareSerial& serial, struct Header& header) {}
+#endif
 
 }  // namespace data
 }  // namespace edcom

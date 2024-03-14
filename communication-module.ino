@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include "data.hpp"
+#include "logging.hpp"
 #include "util.hpp"
 
 #define DEVICE_ID 0
@@ -25,17 +26,10 @@ struct DeviceRecord* SEEN_DEVICES;
 size_t SEEN_DEVICES_SIZE;
 bool connectedToBridge = false;
 
-enum class FailureType { LoRaInit = 1 };
-
-void handleFailure(FailureType type) { Serial.println("handling failure"); }
-
 void setup() {
     Serial.begin(9600);
-    while (!Serial)
-        ;
 
     if (!LoRa.begin(915E6)) {
-        handleFailure(FailureType::LoRaInit);
         while (1)
             ;
     }
@@ -51,28 +45,28 @@ bool shouldReadBodyCallback(struct edcom::data::Header& header) {
     size_t i = 0;
     for (; i < SEEN_DEVICES_SIZE; i++) {
         if (!SEEN_DEVICES[i].deviceId) {
-            Serial.println("info|shouldReadBodyCallback|Blank device");
+            LOGLN("info|shouldReadBodyCallback|Blank device");
             break;
         }
 
         if (*SEEN_DEVICES[i].deviceId != *header.fromId) {
-            Serial.println("info|shouldReadBodyCallback|Device not seen");
+            LOGLN("info|shouldReadBodyCallback|Device not seen");
             continue;
         }
 
         deviceSeen = true;
-        Serial.println("info|shouldReadBodyCallback|Device has been seen");
+        LOGLN("info|shouldReadBodyCallback|Device has been seen");
 
-        Serial.print("info|shouldReadBodyCallback|Current message ID: ");
-        Serial.println(header.messageId);
+        LOG("info|shouldReadBodyCallback|Current message ID: ");
+        LOGLN(header.messageId);
 
         for (size_t j = 0; j < 10; j++) {
             if (SEEN_DEVICES[i].messages[j]) {
-                Serial.print("trace|shouldReadBodyCallback|Comparing with ");
-                Serial.println(SEEN_DEVICES[i].messages[j]->messageId);
+                LOG("trace|shouldReadBodyCallback|Comparing with ");
+                LOGLN(SEEN_DEVICES[i].messages[j]->messageId);
                 if (SEEN_DEVICES[i].messages[j]->messageId ==
                     header.messageId) {
-                    Serial.println(
+                    LOGLN(
                         "info|shouldReadBodyCallback|Device + Message ID has "
                         "been "
                         "seen");
@@ -90,8 +84,7 @@ bool shouldReadBodyCallback(struct edcom::data::Header& header) {
     }
 
     if (!deviceSeen) {
-        Serial.println(
-            "info|shouldReadBodyCallback|Device has not been seen before");
+        LOGLN("info|shouldReadBodyCallback|Device has not been seen before");
         if (i == SEEN_DEVICES_SIZE) {
             SEEN_DEVICES_SIZE += 20;
             SEEN_DEVICES = (struct DeviceRecord*)realloc(
@@ -105,12 +98,12 @@ bool shouldReadBodyCallback(struct edcom::data::Header& header) {
 }
 
 void handlePacket(struct edcom::data::Packet& packet) {
-    Serial.println("trace|handlePacket|Handling packet");
+    LOGLN("trace|handlePacket|Handling packet");
 }
 
 void forwardToBridge(HardwareSerial& serial,
                      struct edcom::data::Packet& packet) {
-    Serial.println("trace|forwardToBridge|Forwarding to bridge");
+    LOGLN("trace|forwardToBridge|Forwarding to bridge");
     edcom::data::writeHeader(serial, packet.header);
     edcom::data::writeData(serial, packet.data, packet.dataLength);
 }
@@ -120,61 +113,60 @@ void loop() {
                                                 &shouldReadBodyCallback);
 
     if (!packetRes && packetRes.has_val()) {
-        Serial.println("warning|loop|Recieved packet, but error reading");
-        Serial.print("debug|loop|Packet Info: ");
+        LOGLN("warning|loop|Recieved packet, but error reading");
+        LOG("debug|loop|Packet Info: ");
         edcom::data::printPacket(Serial, *packetRes);
-        Serial.println();
+        LOGLN();
         return;
     }
     using namespace edcom::data;
     if (!packetRes) {
         switch (+packetRes) {
             case RecievePacketErrors::ExpectedPacketSizeDoesntMatchActual: {
-                Serial.print(
-                    "error|loop|Expected packet size doesn't match actual");
+                LOG("error|loop|Expected packet size doesn't match actual");
                 break;
             }
             case RecievePacketErrors::NoDataAfterHeader: {
-                Serial.print("error|loop|No data after header");
+                LOG("error|loop|No data after header");
                 break;
             }
             case RecievePacketErrors::CallbackPreventedReadingBody: {
-                Serial.print("error|loop|callback prevented reading body");
+                LOG("error|loop|callback prevented reading body");
                 break;
             }
             case RecievePacketErrors::UnableToReadBody: {
-                Serial.println("error|loop|unable to read body");
+                LOGLN("error|loop|unable to read body");
                 break;
             }
             case RecievePacketErrors::UnableToReadHeader: {
-                Serial.println("error|loop|unable to read header");
+                LOGLN("error|loop|unable to read header");
                 break;
             }
         }
         return;
     }
-    Serial.println("info|loog|Recieved packet");
-    Serial.print("debug|loop|Packet Info: ");
+    LOGLN("info|loog|Recieved packet");
+    LOG("debug|loop|Packet Info: ");
     edcom::data::printPacket(Serial, *packetRes);
-    Serial.println();
+    LOGLN();
 
     auto whatToDo =
         edcom::data::whatToDoWithPacket(DEVICE_ID, Serial, *packetRes);
 
     if (whatToDo & edcom::data::WhatToDoWithPacket::Handle) {
-        Serial.println("trace|loop|handling");
+        LOGLN("trace|loop|handling");
         handlePacket(*packetRes);
         // TODO(EliSauder): Impl Handle
     }
     if (whatToDo & edcom::data::WhatToDoWithPacket::ForwardToBridge) {
-        Serial.println("trace|loop|forwarding");
+        LOGLN("trace|loop|forwarding");
         forwardToBridge(Serial, *packetRes);
         // TODO(EliSauder): Impl forward
     }
     if (whatToDo & edcom::data::WhatToDoWithPacket::Retransmit) {
-        Serial.println("trace|loop|retransmitting");
+        LOGLN("trace|loop|retransmitting");
         edcom::data::sendMessage(LoRa, *packetRes);
     }
 
-    Serial.println("trace|loop|done");
+    LOGLN("trace|loop|done");
 }

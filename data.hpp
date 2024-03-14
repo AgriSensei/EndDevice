@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "logging.hpp"
 #include "queue.hpp"
 #include "util.hpp"
 
@@ -55,22 +56,43 @@ util::Result<Packet, RecievePacketErrors> recievePacket(
     LoRaClass& lora, int packetSize,
     bool (*shouldReadBody)(struct Header&) = nullptr);
 
+#ifndef DO_LOGGING
 template <typename T>
 size_t writeHeader(T& writeOut, const Header& header) {
     size_t bytesWritten{};
     bytesWritten += edcom::util::write2Bytes(
-        writeOut, header.fromId ? static_cast<uint16_t>(header.fromType)
-                                : *header.fromId);
+        writeOut, !header.fromId ? static_cast<uint16_t>(header.fromType)
+                                 : *header.fromId + 2);
 
     bytesWritten += edcom::util::write2Bytes(
         writeOut,
-        header.toId ? static_cast<uint16_t>(header.toType) : *header.toId);
+        !header.toId ? static_cast<uint16_t>(header.toType) : *header.toId + 2);
 
     bytesWritten += writeOut.write(header.messageId);
     bytesWritten += writeOut.write(header.messageType);
     bytesWritten += edcom::util::write2Bytes(writeOut, header.bodySize);
     return bytesWritten;
 }
+#else
+template <typename T>
+size_t writeHeader(T& writeOut, const Header& header) {
+    size_t bytesWritten{};
+    bytesWritten += edcom::util::write2Bytes(
+        writeOut, !header.fromId ? static_cast<uint16_t>(header.fromType)
+                                 : *header.fromId + 2);
+
+    bytesWritten += edcom::util::write2Bytes(
+        writeOut,
+        !header.toId ? static_cast<uint16_t>(header.toType) : *header.toId + 2);
+
+    bytesWritten += writeOut.print(header.messageId);
+    writeOut.print("|");
+    bytesWritten += writeOut.print(header.messageType);
+    writeOut.print("|");
+    bytesWritten += edcom::util::write2Bytes(writeOut, header.bodySize);
+    return bytesWritten;
+}
+#endif
 
 template <typename T>
 size_t writeData(T& writeOut, uint8_t* data, size_t size) {

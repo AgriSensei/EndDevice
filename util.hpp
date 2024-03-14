@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "logging.hpp"
+
 namespace edcom {
 namespace util {
 
@@ -78,16 +80,28 @@ Optional<uint16_t> get2Bytes(LoRaClass& lora, int& packetSize);
 
 template <typename T>
 size_t writeByte(T& writeOut, uint8_t byte) {
-    return writeOut.write(byte);
+    return writeOut.write(byte & 0xFF);
 }
 
+#ifndef DO_LOGGING
 template <typename T>
 size_t write2Bytes(T& writeOut, uint16_t bytes) {
     size_t numBytes{};
-    numBytes += writeOut.write(static_cast<uint8_t>(bytes && 0xFF));
-    numBytes += writeOut.write(static_cast<uint8_t>(bytes && 0xFF00));
+    numBytes += writeOut.write(static_cast<uint8_t>(bytes & 0xFF));
+    numBytes += writeOut.write(static_cast<uint8_t>((bytes & 0xFF00) >> 8));
     return numBytes;
 }
+#else
+template <typename T>
+size_t write2Bytes(T& writeOut, uint16_t bytes) {
+    size_t numBytes{};
+    numBytes += writeOut.print(static_cast<uint8_t>(bytes & 0xFF));
+    writeOut.print("|");
+    numBytes += writeOut.print(static_cast<uint8_t>((bytes & 0xFF00) >> 8));
+    writeOut.print("|");
+    return numBytes;
+}
+#endif
 
 template <typename T>
 T min(T a, T b) {
