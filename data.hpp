@@ -28,6 +28,8 @@ struct __attribute__((packed)) Header {
 };
 // TODO(EliSauder): Change bodySize to packet# and add number of packets field
 
+void printHeader(HardwareSerial& serial, struct Header& header);
+
 struct __attribute__((packed)) Packet {
     Header header{};
     uint8_t* data{};
@@ -35,6 +37,8 @@ struct __attribute__((packed)) Packet {
 
     ~Packet() { free(data); }
 };
+
+void printPacket(HardwareSerial& serial, struct Packet& packet);
 
 enum class RecievePacketErrors {
     NoPacketToRead = 0,
@@ -50,6 +54,28 @@ void recievePacket(int packetSize);
 util::Result<Packet, RecievePacketErrors> recievePacket(
     LoRaClass& lora, int packetSize,
     bool (*shouldReadBody)(struct Header&) = nullptr);
+
+template <typename T>
+size_t writeHeader(T& writeOut, const Header& header) {
+    size_t bytesWritten{};
+    bytesWritten += edcom::util::write2Bytes(
+        writeOut, header.fromId ? static_cast<uint16_t>(header.fromType)
+                                : *header.fromId);
+
+    bytesWritten += edcom::util::write2Bytes(
+        writeOut,
+        header.toId ? static_cast<uint16_t>(header.toType) : *header.toId);
+
+    bytesWritten += writeOut.write(header.messageId);
+    bytesWritten += writeOut.write(header.messageType);
+    bytesWritten += edcom::util::write2Bytes(writeOut, header.bodySize);
+    return bytesWritten;
+}
+
+template <typename T>
+size_t writeData(T& writeOut, uint8_t* data, size_t size) {
+    return writeOut.write(data, size);
+}
 
 bool sendMessage(LoRaClass& lora, const Packet& message);
 

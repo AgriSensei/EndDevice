@@ -76,8 +76,18 @@ Optional<uint8_t> getByte(LoRaClass& lora, int& packetSize);
 
 Optional<uint16_t> get2Bytes(LoRaClass& lora, int& packetSize);
 
-size_t writeByte(LoRaClass& lora, uint8_t byte);
-size_t write2Bytes(LoRaClass& lora, uint16_t byte);
+template <typename T>
+size_t writeByte(T& writeOut, uint8_t byte) {
+    return writeOut.write(byte);
+}
+
+template <typename T>
+size_t write2Bytes(T& writeOut, uint16_t bytes) {
+    size_t numBytes{};
+    numBytes += writeOut.write(static_cast<uint8_t>(bytes && 0xFF));
+    numBytes += writeOut.write(static_cast<uint8_t>(bytes && 0xFF00));
+    return numBytes;
+}
 
 template <typename T>
 T min(T a, T b) {

@@ -37,6 +37,10 @@ edu::Optional<struct Header> getHeader(LoRaClass& lora, int& packetSize) {
     if (!messageId) {
         return {};
     }
+    auto messageType = edu::getByte(lora, packetSize);
+    if (!messageType) {
+        return {};
+    }
     auto bodySize = edu::get2Bytes(lora, packetSize);
     if (!bodySize) {
         return {};
@@ -48,6 +52,7 @@ edu::Optional<struct Header> getHeader(LoRaClass& lora, int& packetSize) {
     header.toType = toIdInfo->second;
     header.toId = toIdInfo->first;
     header.messageId = *messageId;
+    header.messageType = *messageType;
     header.bodySize = *bodySize;
     return header;
 }
@@ -87,15 +92,18 @@ util::Result<Packet, RecievePacketErrors> recievePacket(
     // Read header
     auto header = getHeader(lora, packetSize);
     if (!header) {
+        Serial.println("error|recievePacket|Unable to read header");
         return RecievePacketErrors::UnableToReadHeader;
     }
     if (packetSize <= 0) {
+        Serial.println("error|recievePacket|No data after header");
         return RecievePacketErrors::NoDataAfterHeader;
     }
 
     // Handle duplicates or other things based on callback
     if (shouldReadBody != nullptr && !shouldReadBody(*header)) {
         readBodyAndDiscard(lora);
+        Serial.println("error|recievePacket|Callback prevented reading body");
         return RecievePacketErrors::CallbackPreventedReadingBody;
     }
 
@@ -111,10 +119,15 @@ util::Result<Packet, RecievePacketErrors> recievePacket(
     auto buffer =
         static_cast<uint8_t*>(malloc(sizeof(uint8_t) * toReadBodySize));
 
+    Serial.println("trace|recievePacket|reading body");
     auto readBodyRes = readBody(lora, toReadBodySize, buffer, toReadBodySize);
+    Serial.println("trace|recievePacket|finished reading body");
 
     // Return final result
     if (!readBodyRes && readBodyRes.has_val()) {
+        Serial.println(
+            "warning|recievePacket|Error occured while reading packet, but "
+            "still got data");
         Packet packet;
         packet.header = std::move(*header);
         packet.data = buffer;
@@ -122,10 +135,13 @@ util::Result<Packet, RecievePacketErrors> recievePacket(
         return {packet, RecievePacketErrors::UnableToReadBody};
     }
     if (!readBodyRes && !readBodyRes.has_val()) {
+        Serial.println(
+            "error|recievePacket|Error while reading body, unable to read");
         free(buffer);
         return RecievePacketErrors::UnableToReadBody;
     }
 
+    Serial.println("trace|recievePacket|Returning packet info");
     Packet packet;
     packet.header = std::move(*header);
     packet.data = buffer;
@@ -141,24 +157,6 @@ void recievePacket(int packetSize) {
     if (res) {
         IncomingMessages.enqueue(*res);
     }
-}
-
-size_t writeHeader(LoRaClass& lora, const Header& header) {
-    size_t bytesWritten{};
-    bytesWritten += lora.write(*header.fromId);
-
-    bytesWritten += edcom::util::write2Bytes(
-        lora,
-        header.toId ? static_cast<uint16_t>(header.toType) : *header.toId);
-
-    bytesWritten += lora.write(header.messageId);
-    bytesWritten += lora.write(header.messageType);
-    bytesWritten += edcom::util::write2Bytes(lora, header.bodySize);
-    return bytesWritten;
-}
-
-size_t writeData(LoRaClass& lora, uint8_t* data, size_t size) {
-    return lora.write(data, size);
 }
 
 const static size_t PACKET_NOT_READY_TRY_AGAIN_DELAY = 10;
@@ -193,7 +191,75 @@ WhatToDoWithPacket whatToDoWithPacket(uint8_t currentDeviceId,
         return WhatToDoWithPacket::Handle;
     }
 
-    return WhatToDoWithPacket::Nothing;
+    if (*packet.header.fromId == currentDeviceId) {
+        return WhatToDoWithPacket::Nothing;
+    }
+
+    return WhatToDoWithPacket::Retransmit;
+}
+
+void printPacket(HardwareSerial& serial, struct Packet& packet) {
+    serial.print("{\"header\":");
+    printHeader(serial, packet.header);
+    serial.print(",");
+    serial.print("\"data\":\"");
+    serial.write(packet.data, packet.dataLength);
+    serial.print("\"}");
+}
+
+void printHeader(HardwareSerial& serial, struct Header& header) {
+    serial.print("{");
+    serial.print("\"fromType\":\"");
+    switch (header.fromType) {
+        case IdType::AnyEndDevice: {
+            serial.print("AnyEndDevice");
+            break;
+        }
+        case IdType::SpecificEndDevice: {
+            serial.print("SpecificEndDevice");
+            break;
+        }
+        case IdType::Bridge: {
+            serial.print("Bridge");
+            break;
+        }
+    }
+    serial.print("\",");
+    if (header.fromId) {
+        serial.print("\"fromId\":\"");
+        serial.print(*header.fromId);
+        serial.print("\",");
+    }
+    serial.print("\"toType\":\"");
+    switch (header.toType) {
+        case IdType::AnyEndDevice: {
+            serial.print("AnyEndDevice");
+            break;
+        }
+        case IdType::SpecificEndDevice: {
+            serial.print("SpecificEndDevice");
+            break;
+        }
+        case IdType::Bridge: {
+            serial.print("Bridge");
+            break;
+        }
+    }
+    serial.print("\",");
+    if (header.toId) {
+        serial.print("\"toId\":\"");
+        serial.print(*header.toId);
+        serial.print("\",");
+    }
+    serial.print("\"messageId\":\"");
+    serial.print(header.messageId);
+    serial.print("\",");
+    serial.print("\"messageType\":\"");
+    serial.print(header.messageType);
+    serial.print("\",");
+    serial.print("\"bodySize\":\"");
+    serial.print(header.bodySize);
+    serial.print("\"}");
 }
 
 }  // namespace data

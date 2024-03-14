@@ -45,14 +45,6 @@ Optional<uint16_t> get2Bytes(LoRaClass& lora, int& packetSize) {
     return data;
 }
 
-size_t writeByte(LoRaClass& lora, uint8_t byte) { return lora.write(byte); }
-
-size_t write2Bytes(LoRaClass& lora, uint16_t bytes) {
-    size_t numBytes{};
-    numBytes += lora.write(static_cast<uint8_t>(bytes && 0xFF));
-    numBytes += lora.write(static_cast<uint8_t>(bytes && 0xFF00));
-    return numBytes;
-}
 
 }  // namespace util
 }  // namespace edcom
